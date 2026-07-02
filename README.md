@@ -17,7 +17,6 @@
 | 项目 | 要求 |
 |------|------|
 | 开发板 | RK3588（ELF 2 开发板） |
-| NPU | RKNN 运行时（librknnrt） |
 | 摄像头 | USB 摄像头（轮趣C70）或 MIPI-CSI（OV13855） |
 | 触发 IO | GPIO 139 |
 | 网络 | 与 MQTT Broker 同局域网 |

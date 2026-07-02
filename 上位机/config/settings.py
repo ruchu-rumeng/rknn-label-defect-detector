@@ -40,7 +40,8 @@ DEFAULT_CONFIG = {
     # 数据
     "data_retention_days": 90,
     "ui_refresh_interval": 1000,
-    "export_dir": "./exports",
+    # 导出目录：空字符串表示使用系统默认（Documents）
+    "export_dir": "",
 }
 
 CONFIG_FILE = _get_data_dir() / "data" / "config.json"
@@ -92,7 +93,18 @@ class Settings:
         return dict(self._config)
 
     def _ensure_export_dir(self):
-        export_dir = Path(self.get("export_dir", "./exports"))
-        export_dir.mkdir(parents=True, exist_ok=True)
+        export_dir = self.get("export_dir", "")
+        if export_dir:
+            Path(export_dir).mkdir(parents=True, exist_ok=True)
+    def _get_export_dir(self) -> Path:
+        """获取实际导出目录：优先用户配置，否则使用用户 Documents 目录"""
+        export_dir = self.get("export_dir", "")
+        if export_dir:
+            return Path(export_dir)
+        # 默认使用用户 Documents 目录，确保可写
+        docs = Path.home() / "Documents"
+        if not docs.exists():
+            docs = Path.home()
+        return docs / "IPC_Monitor_Exports"
 
 settings = Settings()

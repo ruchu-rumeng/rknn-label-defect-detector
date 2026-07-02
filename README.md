@@ -22,7 +22,7 @@
 | 网络 | 与 MQTT Broker 同局域网 |
 
 ## 软件依赖
-
+用到了OpenCV库以及MQTT
 ```bash
 sudo apt-get install libopencv-dev libmosquitto-dev qtbase5-dev
 ```

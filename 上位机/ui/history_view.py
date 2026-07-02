@@ -10,7 +10,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QPushButton, QComboBox, QDateTimeEdit, QGroupBox,
-    QMessageBox, QDialog, QGridLayout
+    QMessageBox, QDialog, QGridLayout, QFileDialog
 )
 from PyQt6.QtCore import Qt, QDateTime
 from PyQt6.QtGui import QColor, QFont
@@ -154,7 +154,14 @@ class HistoryViewPage(QWidget):
                 msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
                 msgBox.exec()
                 return
-            ok, msg = ExportManager.export_csv(results)
+            # 弹窗让用户选择保存位置
+            default_name = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            path, _ = QFileDialog.getSaveFileName(
+                self, "导出 CSV", default_name, "CSV 文件 (*.csv);;所有文件 (*.*)"
+            )
+            if not path:
+                return  # 用户取消
+            ok, msg = ExportManager.export_csv(results, filepath=path)
             msgBox = QMessageBox(self)
             if ok:
                 msgBox.setWindowTitle("完成")
@@ -183,7 +190,14 @@ class HistoryViewPage(QWidget):
                 msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
                 msgBox.exec()
                 return
-            ok, msg = ExportManager.export_excel(results)
+            # 弹窗让用户选择保存位置
+            default_name = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            path, _ = QFileDialog.getSaveFileName(
+                self, "导出 Excel", default_name, "Excel 文件 (*.xlsx);;所有文件 (*.*)"
+            )
+            if not path:
+                return  # 用户取消
+            ok, msg = ExportManager.export_excel(results, filepath=path)
             msgBox = QMessageBox(self)
             if ok:
                 msgBox.setWindowTitle("完成")

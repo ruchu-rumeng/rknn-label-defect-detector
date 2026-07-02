@@ -78,6 +78,99 @@ chmod +x clean_working.sh
 }
 ```
 
+---
+
+## 上位机管理系统（PC Software）
+
+`上位机/` 目录包含基于 PyQt6 + MQTT 的上位机管理软件，用于接收、存储、展示和分析 ELF2 开发板的检测数据。
+
+### 功能特性
+
+- **实时监控看板**：在线设备列表、检测统计卡片、最新记录表格、报警警示条
+- **数据存储**：SQLite 本地持久化，支持按时间/设备/缺陷类型筛选
+- **历史查询与导出**：导出 CSV / Excel 报告
+- **可视化分析**：matplotlib 每小时/每日趋势、缺陷饼图、良率柱状图
+- **设备管理**：在线状态监控、远程命令下发（trigger_detect / set_threshold 等）
+- **报警系统**：等级阈值/缺陷类型/偏移超标触发，界面警示条 + 声音
+- **MQTT Broker 自动启动**：程序自动检测并启动 mosquitto，产线开箱即用
+- **调试信息面板**：实时显示 MQTT 连接状态、Broker 地址、最后消息时间
+- **日志系统**：自动写入 `data/logs/app.log`，支持内存缓存最近 200 条
+
+### 上位机项目结构
+
+```
+上位机/
+├── config/                 # 配置层
+│   ├── settings.py         # 系统配置管理（JSON 持久化）
+│   └── mqtt_topic_spec.md  # MQTT Topic 设计规范
+├── core/                   # 业务核心层
+│   ├── mqtt_client.py      # MQTT 客户端（paho-mqtt + 自动重连）
+│   ├── broker_manager.py   # MQTT Broker 自动检测/启动/关闭
+│   ├── data_processor.py   # 数据校验与处理器
+│   └── alarm_manager.py    # 报警规则引擎
+├── database/               # 数据层
+│   ├── schema.sql          # SQLite 数据库 DDL
+│   └── db_manager.py       # 数据库管理器（单例）
+├── ui/                     # UI 层（PyQt6）
+│   ├── main_window.py      # 主窗口（侧边栏导航）
+│   ├── dashboard.py        # 实时监控看板 + 调试面板
+│   ├── device_manager.py   # 设备管理页面
+│   ├── history_view.py     # 历史查询与导出
+│   ├── analytics.py        # 统计分析（matplotlib）
+│   └── settings_dialog.py  # 系统设置对话框
+├── utils/                  # 工具层
+│   ├── logger.py           # 日志文件系统
+│   ├── validators.py       # 数据校验
+│   ├── image_utils.py      # Base64 图片处理
+│   └── export_utils.py     # CSV/Excel 导出
+├── main.py                 # 入口文件（自动启动 Broker）
+├── requirements.txt        # Python 依赖
+├── build.py                # PyInstaller 打包脚本
+└── README.md               # 本文件
+```
+
+### 快速开始
+
+```bash
+# 安装依赖
+pip install -r 上位机/requirements.txt
+
+# 运行
+python 上位机/main.py
+
+# 打包为可执行文件
+python 上位机/build.py
+# 输出: dist/IPC_Monitor_System.exe
+```
+
+### 产线部署（MQTT Broker 自动启动）
+
+1. **首次运行**：下载安装 [mosquitto](https://mosquitto.org/download/)
+2. **打开系统设置** → 勾选"自动启动本地 mosquitto"
+3. **配置路径**：如 `C:\Program Files\mosquitto\mosquitto.exe`
+4. **确定保存**，重启程序
+
+之后每次双击 `IPC_Monitor_System.exe` 都会自动启动 mosquitto（配置 `listener 1883 0.0.0.0`，监听所有接口），开发板只需连接 PC 的 IP 即可。
+
+### 调试方法
+
+看板底部展开「调试信息」面板，实时显示：
+- MQTT 连接状态（已连接/未连接）
+- Broker 地址和端口
+- 订阅的 topic
+- 最后收到消息的时间和内容
+
+日志文件：`data/logs/app.log`
+
+### 开发板对接注意事项
+
+- MQTT Broker 地址必须配为 **PC 的 IP**（如 `192.168.137.1`），不能是 `127.0.0.1`
+- JSON 字段名必须对齐：`seq_id`、`timestamp`、`device_id`、`position_ok`
+- 检测数据 QoS 建议改为 1（防止网络抖动丢数据）
+- 需要定时发送心跳到 `elf2/{device_id}/heartbeat`（5秒一次）
+
+详见 `上位机/embedded_changes.md` 和 `上位机/config/mqtt_topic_spec.md`
+
 ## 许可证
 
 MIT License

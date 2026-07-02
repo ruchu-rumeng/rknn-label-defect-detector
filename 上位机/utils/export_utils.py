@@ -47,13 +47,19 @@ class ExportManager:
     ]
 
     @classmethod
-    def export_csv(cls, data: List[Dict[str, Any]], filename: Optional[str] = None) -> Tuple[bool, str]:
-        """导出 CSV，返回 (成功, 文件路径或错误信息)"""
+    def export_csv(cls, data: List[Dict[str, Any]], filepath: Optional[Path] = None) -> Tuple[bool, str]:
+        """导出 CSV，返回 (成功, 文件路径或错误信息)
+
+        :param filepath: 用户指定的完整保存路径，None 则自动生成
+        """
         try:
-            export_dir = _get_export_dir()
-            if not filename:
+            if filepath is None:
+                export_dir = _get_export_dir()
                 filename = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            filepath = export_dir / filename
+                filepath = export_dir / filename
+            else:
+                filepath = Path(filepath)
+                filepath.parent.mkdir(parents=True, exist_ok=True)
 
             with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
@@ -69,13 +75,19 @@ class ExportManager:
             return False, f"导出 CSV 失败：{e}"
 
     @classmethod
-    def export_excel(cls, data: List[Dict[str, Any]], filename: Optional[str] = None) -> Tuple[bool, str]:
-        """导出 Excel，返回 (成功, 文件路径或错误信息)"""
+    def export_excel(cls, data: List[Dict[str, Any]], filepath: Optional[Path] = None) -> Tuple[bool, str]:
+        """导出 Excel，返回 (成功, 文件路径或错误信息)
+
+        :param filepath: 用户指定的完整保存路径，None 则自动生成
+        """
         try:
-            export_dir = _get_export_dir()
-            if not filename:
+            if filepath is None:
+                export_dir = _get_export_dir()
                 filename = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = export_dir / filename
+                filepath = export_dir / filename
+            else:
+                filepath = Path(filepath)
+                filepath.parent.mkdir(parents=True, exist_ok=True)
 
             wb = openpyxl.Workbook()
             ws = wb.active

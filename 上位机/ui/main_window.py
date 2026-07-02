@@ -59,7 +59,7 @@ class NavButton(QPushButton):
             }
             QPushButton:checked {
                 background-color: #0ea5e9;
-                color: #ffffff;
+                color: #000000;
                 font-weight: bold;
             }
         """)

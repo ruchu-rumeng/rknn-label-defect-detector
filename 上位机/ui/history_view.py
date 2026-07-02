@@ -145,36 +145,62 @@ class HistoryViewPage(QWidget):
             self.table.setItem(i, 5, ng_item)
 
     def _export_csv(self):
-        results = self._get_current_results()
-        if not results:
+        try:
+            results = self._get_current_results()
+            if not results:
+                msgBox = QMessageBox(self)
+                msgBox.setWindowTitle("提示")
+                msgBox.setText("无数据可导出")
+                msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
+                msgBox.exec()
+                return
+            ok, msg = ExportManager.export_csv(results)
             msgBox = QMessageBox(self)
-            msgBox.setWindowTitle("提示")
-            msgBox.setText("无数据可导出")
-            msgBox.addButton("确定", QMessageBox.AcceptRole)
+            if ok:
+                msgBox.setWindowTitle("完成")
+                msgBox.setText(f"CSV 已导出到:\n{msg}")
+            else:
+                msgBox.setWindowTitle("导出失败")
+                msgBox.setText(msg)
+                msgBox.setIcon(QMessageBox.Icon.Warning)
+            msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
             msgBox.exec()
-            return
-        path = ExportManager.export_csv(results)
-        msgBox = QMessageBox(self)
-        msgBox.setWindowTitle("完成")
-        msgBox.setText(f"CSV 已导出到:\n{path}")
-        msgBox.addButton("确定", QMessageBox.AcceptRole)
-        msgBox.exec()
+        except Exception as e:
+            msgBox = QMessageBox(self)
+            msgBox.setWindowTitle("错误")
+            msgBox.setText(f"导出时发生错误：{e}")
+            msgBox.setIcon(QMessageBox.Icon.Critical)
+            msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
+            msgBox.exec()
 
     def _export_excel(self):
-        results = self._get_current_results()
-        if not results:
+        try:
+            results = self._get_current_results()
+            if not results:
+                msgBox = QMessageBox(self)
+                msgBox.setWindowTitle("提示")
+                msgBox.setText("无数据可导出")
+                msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
+                msgBox.exec()
+                return
+            ok, msg = ExportManager.export_excel(results)
             msgBox = QMessageBox(self)
-            msgBox.setWindowTitle("提示")
-            msgBox.setText("无数据可导出")
-            msgBox.addButton("确定", QMessageBox.AcceptRole)
+            if ok:
+                msgBox.setWindowTitle("完成")
+                msgBox.setText(f"Excel 已导出到:\n{msg}")
+            else:
+                msgBox.setWindowTitle("导出失败")
+                msgBox.setText(msg)
+                msgBox.setIcon(QMessageBox.Icon.Warning)
+            msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
             msgBox.exec()
-            return
-        path = ExportManager.export_excel(results)
-        msgBox = QMessageBox(self)
-        msgBox.setWindowTitle("完成")
-        msgBox.setText(f"Excel 已导出到:\n{path}")
-        msgBox.addButton("确定", QMessageBox.AcceptRole)
-        msgBox.exec()
+        except Exception as e:
+            msgBox = QMessageBox(self)
+            msgBox.setWindowTitle("错误")
+            msgBox.setText(f"导出时发生错误：{e}")
+            msgBox.setIcon(QMessageBox.Icon.Critical)
+            msgBox.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
+            msgBox.exec()
 
     def _get_current_results(self) -> list:
         device = self.combo_device.currentText()

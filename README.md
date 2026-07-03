@@ -49,9 +49,9 @@ chmod +x clean_working.sh
 
 ```bash
 # 1. 复制脚本和服务文件到系统目录
-sudo cp elf2端/gpio/gpioinit.sh /usr/local/bin/
+sudo cp elf2/gpio/gpioinit.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/gpioinit.sh
-sudo cp elf2端/gpio/gpio139.service /etc/systemd/system/
+sudo cp elf2/gpio/gpio139.service /etc/systemd/system/
 
 # 2. 启用并启动服务
 sudo systemctl daemon-reload
@@ -67,8 +67,8 @@ cat /sys/class/gpio/gpio139/direction   # 应输出 in
 
 | 文件 | 说明 |
 |------|------|
-| `elf2端/gpio/gpioinit.sh` | 安全导出 GPIO139 并设为输入；已导出则跳过；放宽权限便于程序访问 |
-| `elf2端/gpio/gpio139.service` | systemd oneshot 类型服务，开机自动执行脚本，不常驻内存 |
+| `elf2/gpio/gpioinit.sh` | 安全导出 GPIO139 并设为输入；已导出则跳过；放宽权限便于程序访问 |
+| `elf2/gpio/gpio139.service` | systemd oneshot 类型服务，开机自动执行脚本，不常驻内存 |
 
 **注意事项：**
 - GPIO139 对应 RK3588 的 GPIO4_B4（瑞芯微命名）
@@ -114,7 +114,7 @@ cat /sys/class/gpio/gpio139/direction   # 应输出 in
 
 ## 上位机管理系统（PC Software）
 
-`上位机/` 目录包含基于 PyQt6 + MQTT 的上位机管理软件，用于接收、存储、展示和分析 ELF2 开发板的检测数据。
+`host_software/` 目录包含基于 PyQt6 + MQTT 的上位机管理软件，用于接收、存储、展示和分析 ELF2 开发板的检测数据。
 
 ### 功能特性
 
@@ -131,7 +131,7 @@ cat /sys/class/gpio/gpio139/direction   # 应输出 in
 ### 上位机项目结构
 
 ```
-上位机/
+host_software/
 ├── config/                 # 配置层
 │   ├── settings.py         # 系统配置管理（JSON 持久化）
 │   └── mqtt_topic_spec.md  # MQTT Topic 设计规范
@@ -165,13 +165,13 @@ cat /sys/class/gpio/gpio139/direction   # 应输出 in
 
 ```bash
 # 安装依赖
-pip install -r 上位机/requirements.txt
+pip install -r host_software/requirements.txt
 
 # 运行
-python 上位机/main.py
+python host_software/main.py
 
 # 打包为可执行文件
-python 上位机/build.py
+python host_software/build.py
 # 输出: dist/IPC_Monitor_System.exe
 ```
 
@@ -201,7 +201,7 @@ python 上位机/build.py
 - 检测数据 QoS 建议改为 1（防止网络抖动丢数据）
 - 需要定时发送心跳到 `elf2/{device_id}/heartbeat`（5秒一次）
 
-详见 `上位机/embedded_changes.md` 和 `上位机/config/mqtt_topic_spec.md`
+详见 `host_software/embedded_changes.md` 和 `host_software/config/mqtt_topic_spec.md`
 
 ## 许可证
 

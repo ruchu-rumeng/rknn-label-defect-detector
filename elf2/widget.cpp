@@ -25,10 +25,6 @@ Widget::Widget(QWidget *parent) :
     initInferenceThread();
 
     // ===== GPIO 外部触发配置 =====
-    // GPIO 139：请在终端先执行以下命令配置
-    //   echo 139 > /sys/class/gpio/export
-    //   echo in > /sys/class/gpio/gpio139/direction
-    // 如果悬空时 value=1，说明内部上拉使能，需要外接下拉电阻或改代码逻辑
     gpioPath = "/sys/class/gpio/gpio139/value";
 
     gpioTimer = new QTimer(this);
@@ -36,6 +32,7 @@ Widget::Widget(QWidget *parent) :
     gpioTimer->start(50);  // 每 50ms 读一次 GPIO
 }
 
+// 初始化摄像头
 void Widget::initCameraThread(int index)
 {
     m_thread = new QThread(this);
@@ -47,6 +44,7 @@ void Widget::initCameraThread(int index)
     m_thread->start();
 }
 
+// USB和CSI摄像头切换
 void Widget::onToggleCamera()
 {
     // 1. 停止推理并等待其线程退出
@@ -104,6 +102,7 @@ void Widget::onToggleCamera()
     ui->camSwitchBtn->setText(useUsb ? "切换摄像头 (CSI)" : "切换摄像头 (USB)");
 }
 
+// GPIO 检查函数
 void Widget::checkGpio()
 {
     // 读取 GPIO 电平值
@@ -124,6 +123,30 @@ void Widget::checkGpio()
     lastGpioState = state;
 }
 
+// 蜂鸣器控制函数
+void Widget::buzzerOn()
+{
+    if (buzzerActive) return;  // 已经激活
+    QFile f("/sys/class/gpio/gpio116/value");
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write("1");
+        f.close();
+        buzzerActive = true;
+    }
+}
+
+void Widget::buzzerOff()
+{
+    if (!buzzerActive) return;  // 已经关闭
+    QFile f("/sys/class/gpio/gpio116/value");
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write("0");
+        f.close();
+        buzzerActive = false;
+    }
+}
+
+// 显示摄像头帧
 void Widget::onFrameReady(QImage image)
 {
     QPixmap pixmap = QPixmap::fromImage(image);
@@ -132,6 +155,7 @@ void Widget::onFrameReady(QImage image)
     ui->videoLabel->setStyleSheet("background-color: black;");
 }
 
+// 初始化推理线程
 void Widget::initInferenceThread()
 {
     m_inferThread = new QThread(this);
@@ -166,6 +190,7 @@ void Widget::initInferenceThread()
     hbTimer->start(5000);
 }
 
+// 推理结果处理函数
 void Widget::onResultReady(const DetectionResult &result)
 {
     cv::Mat rgbResult;
@@ -178,8 +203,18 @@ void Widget::onResultReady(const DetectionResult &result)
     ui->gradeValue->setText(QString::number(result.grade));
     ui->defectValue->setText(result.defect);
     ui->offsetValue->setText(result.positionOk ? "否" : "是");
+
+    // 根据结果控制蜂鸣器
+    if (result.defect != "normal") {
+        // 有缺陷，触发蜂鸣器
+        buzzerOn();
+        QTimer::singleShot(1000, this, [this]() {
+            buzzerOff();
+        });
+    }
 }
 
+// 日志显示和本地数据记录
 void Widget::onLogReady(const QString &json)
 {
     QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
@@ -202,11 +237,13 @@ void Widget::onLogReady(const QString &json)
     ui->jsonLog->setText(display);
 }
 
+// FPS显示
 void Widget::onFpsUpdated(int fps)
 {
     ui->fpsLabel->setText(QString("FPS: %1").arg(fps));
 }
 
+// 显示历史记录对话框
 bool Widget::eventFilter(QObject *obj, QEvent *event)
 {
     if (obj == ui->jsonLog && event->type() == QEvent::MouseButtonPress) {
@@ -249,6 +286,7 @@ void Widget::showHistoryDialog()
     historyDialog->activateWindow();
 }
 
+// 析构函数
 Widget::~Widget()
 {
     if (hbTimer) {

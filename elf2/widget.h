@@ -59,6 +59,11 @@ private:
     int lastGpioState = 0;
     QString gpioPath;  // GPIO 文件路径，如 /sys/class/gpio/gpio147/value
 
+    // 蜂鸣器
+    bool buzzerActive = false;
+    void buzzerOn();
+    void buzzerOff();
+    
     // MQTT 心跳相关
     QTimer *hbTimer = nullptr;
     QString deviceId = "elf2-line01";  // TODO: 后续从配置文件读取

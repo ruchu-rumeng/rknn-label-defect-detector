@@ -9,7 +9,7 @@
 #include <QFile>
 
 // ===== MQTT 配置（部署时修改）=====
-#define MQTT_BROKER_HOST  "192.168.1.100"  // 上位机 IP 地址
+#define MQTT_BROKER_HOST  "192.168.137.1"  // 上位机 IP 地址
 #define MQTT_BROKER_PORT  1883              // MQTT Broker 端口
 #define MQTT_DEVICE_ID    "elf2-line01"    // 设备唯一标识（产线编号）
 
@@ -114,8 +114,8 @@ void Widget::checkGpio()
 
     int state = (data.trimmed() == "1") ? 1 : 0;
 
-    // 上升沿检测：上次是低电平(0)，这次是高电平(1)
-    if (lastGpioState == 0 && state == 1) {
+    // 下降沿检测
+    if (lastGpioState == 1 && state == 0) {
         // 触发一次推理（通过事件队列投递到推理线程执行）
         if (inferenceThread) {
             QMetaObject::invokeMethod(inferenceThread, "doInference", Qt::QueuedConnection);

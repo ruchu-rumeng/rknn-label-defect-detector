@@ -48,19 +48,19 @@ void InferenceThread::stop()
 }
 
 cv::Mat InferenceThread::letterbox(const cv::Mat &src, int targetSize,
-                                      float &scale, int &offsetX, int &offsetY)
+                                      float &scale, int &padTop, int &padLeft)
 {
     scale = std::min((float)targetSize / src.cols, (float)targetSize / src.rows);
     int newW = (int)(src.cols * scale);
     int newH = (int)(src.rows * scale);
-    offsetY = (targetSize - newH) / 2;
-    offsetX = (targetSize - newW) / 2;
+    padTop = (targetSize - newH) / 2;
+    padLeft = (targetSize - newW) / 2;
 
     cv::Mat resized;
     cv::resize(src, resized, cv::Size(newW, newH), 0, 0, cv::INTER_CUBIC);
 
     cv::Mat dst(targetSize, targetSize, CV_8UC3, cv::Scalar(0, 0, 0));
-    resized.copyTo(dst(cv::Rect(offsetX, offsetY, newW, newH)));
+    resized.copyTo(dst(cv::Rect(padLeft, padTop, newW, newH)));
     return dst;
 }
 

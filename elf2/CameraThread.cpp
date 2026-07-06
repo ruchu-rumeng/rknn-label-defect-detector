@@ -18,7 +18,7 @@ CameraThread::CameraThread(int cameraIndex, QObject *parent)
     if (!cap.isOpened()) return;
 
     if (cameraIndex != 11) {
-        cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', 'U', 'Y', '2'));
+        cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V'));
         cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
         cap.set(cv::CAP_PROP_FPS, 30);

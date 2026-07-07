@@ -3,9 +3,10 @@
 
 #include <QWidget>
 #include <QThread>
-#include <QDialog>
+#include <QFile>
+#include <QDateTime>
+#include <QTimer>
 #include <QTableWidget>
-#include <opencv2/opencv.hpp>
 #include "CameraThread.h"
 #include "InferenceThread.h"
 #include "MqttClient.h"
@@ -13,14 +14,6 @@
 namespace Ui {
 class Widget;
 }
-
-struct HistoryEntry {
-    int id;
-    QString time;
-    int grade;
-    QString defect;
-    bool positionOk;
-};
 
 class Widget : public QWidget
 {
@@ -30,47 +23,52 @@ public:
     explicit Widget(QWidget *parent = nullptr);
     ~Widget();
 
-protected:
-    bool eventFilter(QObject *obj, QEvent *event) override;
-
 private slots:
-    void onFrameReady(QImage image);
-    void onFpsUpdated(int fps);
     void onResultReady(const DetectionResult &result);
     void onLogReady(const QString &json);
-    void onToggleCamera();
-    void checkGpio();  // 定时检查 GPIO 状态（外部触发）
+    void onCamSwitchClicked();
+    void onHistoryClicked();
 
 private:
     Ui::Widget *ui;
-    QThread *m_thread;
+
+    QThread cameraThreadObj;
     CameraThread *cameraThread;
-    QThread *m_inferThread;
+
+    QThread inferenceThreadObj;
     InferenceThread *inferenceThread;
-    MqttClient *mqttClient = nullptr;  // MQTT 客户端
-    bool useUsb = false;
 
-    QVector<HistoryEntry> history;
-    QDialog *historyDialog = nullptr;
-    QTableWidget *historyTable = nullptr;
+    MqttClient *mqttClient;
 
-    // GPIO 外部触发相关
-    QTimer *gpioTimer = nullptr;
-    int lastGpioState = 0;
-    QString gpioPath;  // GPIO 文件路径，如 /sys/class/gpio/gpio147/value
+    int camIndex = 0;  // 0=USB, 1=MIPI-CSI
+    bool switchingCam = false;
+
+    void rebuildCamera();
+
+    // GPIO 读取
+    int lastGpioState = 1;  // 常闭传感器默认高电平
+    QTimer *gpioTimer;
+    void readGpioState();
 
     // 蜂鸣器
-    bool buzzerActive = false;
     void buzzerOn();
     void buzzerOff();
-    
-    // MQTT 心跳相关
-    QTimer *hbTimer = nullptr;
-    QString deviceId = "elf2-line01";  // TODO: 后续从配置文件读取
+    bool buzzerActive = false;
+    QTimer *buzzerTimer;
 
-    void initCameraThread(int index);
-    void initInferenceThread();
+    // MQTT 心跳
+    QTimer *hbTimer;
+    void sendHeartbeat();
+
+    // 历史记录
+    struct HistoryItem {
+        QString time;
+        int grade;
+        QString defect;
+        bool positionOk;
+    };
+    QVector<HistoryItem> history;
     void showHistoryDialog();
 };
 
-#endif
+#endif // WIDGET_H

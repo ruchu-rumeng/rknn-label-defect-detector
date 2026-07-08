@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QMutex>
 #include <QElapsedTimer>
 #include <QImage>
 #include <opencv2/opencv.hpp>
@@ -30,6 +31,7 @@ private:
     cv::Mat currentFrame;
     int frameCount = 0;
     QElapsedTimer fpsTimer;
+    QMutex mutex;
 
     // 摄像头标定参数（640x480 分辨率下标定）
     cv::Mat cameraMatrix;

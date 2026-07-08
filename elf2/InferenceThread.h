@@ -50,6 +50,7 @@ private:
                                       int origW, int origH);
     float sigmoid(float x) { return 1.0f / (1.0f + expf(-x)); }
     QString getDefectName(int idx);
+    cv::Mat correctLabel(const cv::Mat &roi);
 };
 
 Q_DECLARE_METATYPE(DetectionResult);

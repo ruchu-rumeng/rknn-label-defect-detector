@@ -72,7 +72,7 @@ cat /sys/class/gpio/gpio139/direction
 | `elf2/gpio/gpio139.service` | systemd oneshot 类型服务，开机自动执行脚本，不常驻内存 |
 
 **注意事项：**
-- GPIO139 对应 RK3588 的 GPIO4_B4（瑞芯微命名）
+- GPIO139 对应 RK3588 的 GPIO4_B3（瑞芯微命名）
 - 脚本已做幂等处理：重复 `enable` 不会报错
 - `chmod 777` 是为了让非 root 用户运行的 Qt 程序也能读写 GPIO
 
@@ -87,7 +87,7 @@ cat /sys/class/gpio/gpio139/direction
 ## 模型
 
 - `detector_best.rknn`：YOLOv8n 检测器，输入 640×640，输出 [1,5,8400]
-- `classifier_best.rknn`：MobileNetV3 分类器，输入 320×320，输出 5 grade + 4 defect
+- `classifier_best.rknn`：MobileNetV3 分类器，输入 320×320，输出[1,5]和[1,4]
 
 模型路径在 `widget.cpp` 的 `initInferenceThread()` 中配置。
 

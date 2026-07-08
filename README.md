@@ -60,7 +60,7 @@ sudo systemctl start gpio139.service
 
 # 3. 验证
 sudo systemctl status gpio139.service
-cat /sys/class/gpio/gpio139/direction   # 应输出 in
+cat /sys/class/gpio/gpio139/direction   
 ```
 
 **文件说明：**

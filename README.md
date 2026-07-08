@@ -19,6 +19,7 @@
 | 开发板 | RK3588（ELF 2 开发板） |
 | 摄像头 | USB 摄像头（轮趣C70）或 MIPI-CSI（OV13855） |
 | 触发 IO | GPIO4_B3(瑞芯微的命名格式,GPIO139) |
+| 报警 IO | GPIO3_C4(瑞芯微的命名格式,GPIO116) |
 | 网络 | 与 MQTT Broker 同局域网 |
 
 ## 软件依赖

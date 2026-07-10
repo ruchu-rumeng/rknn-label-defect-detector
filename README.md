@@ -18,9 +18,19 @@
 |------|------|
 | 开发板 | RK3588（ELF 2 开发板） |
 | 摄像头 | USB 摄像头（轮趣C70）或 MIPI-CSI（OV13855） |
+| 光电传感器 | E18-D80NK2(淘宝链接:https://e.tb.cn/h.8a1amAZQdKzsUQI?tk=jShfgoBShh2 ) |
 | 触发 IO | GPIO4_B3(瑞芯微的命名格式,GPIO139) |
 | 报警 IO | GPIO3_C4(瑞芯微的命名格式,GPIO116) |
 | 网络 | 与 MQTT Broker 同局域网 |
+
+## 模型
+目前模型训练有关的脚本和数据集暂不开源，只提供冻结的onnx和适配RK3588的rknn模型,在models文件夹下
+
+## PCB扩展板
+为光电传感器提供接口,搭建蜂鸣器报警电路,支持跳线帽通过是否启用反相器调整开关电平反相,在PCB文件夹下
+
+## 外壳设计与支架设计
+裸露的板卡极易受工业产线环境影响,搭建外壳对其进行保护,同时为MIPI屏幕制作了简易支架,在mechine文件夹下
 
 ## 软件依赖
 用到了OpenCV库以及MQTT
@@ -204,8 +214,8 @@ python host_software/build.py
 
 详见 `host_software/embedded_changes.md` 和 `host_software/config/mqtt_topic_spec.md`
 
-### 模型
-目前模型训练有关的脚本和数据集暂不开源，只提供冻结的onnx和适配RK3588的rknn模型,在models文件夹下
+## 演示视频与文档
+详细的技术文档和简单的演示视频在word_video文件夹下
 
 ## 许可证
 

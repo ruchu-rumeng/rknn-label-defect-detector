@@ -1,245 +1,313 @@
 #include "widget.h"
 #include "ui_widget.h"
-#include <QImage>
-#include <QDebug>
-#include <QDateTime>
-#include <QPushButton>
-#include <QTableWidget>
+#include <opencv2/opencv.hpp>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QVBoxLayout>
 #include <QHeaderView>
-#include <QDialog>
+#include <QMouseEvent>
 #include <QFile>
-#include <QIODevice>
 
-#define GPIO_VALUE    "/sys/class/gpio/gpio139/value"
-#define BUZZER_GPIO   "/sys/class/gpio/gpio116/value"
+// ===== MQTT 配置（部署时修改）=====
+#define MQTT_BROKER_HOST  "192.168.137.1"  // 上位机 IP 地址
+#define MQTT_BROKER_PORT  1883              // MQTT Broker 端口
+#define MQTT_DEVICE_ID    "elf2-line01"    // 设备唯一标识（产线编号）
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::Widget),
-    camIndex(0),
-    switchingCam(false)
+    ui(new Ui::Widget)
 {
     ui->setupUi(this);
+    ui->jsonLog->installEventFilter(this);
+    connect(ui->historyBtn, &QPushButton::clicked, this, &Widget::showHistoryDialog);
+    connect(ui->camSwitchBtn, &QPushButton::clicked, this, &Widget::onToggleCamera);
+    initCameraThread(21);  // 默认启动 USB 摄像头
+    initInferenceThread();
 
-    // ---- 摄像头线程 ----
-    cameraThread = new CameraThread(camIndex);
-    cameraThread->moveToThread(&cameraThreadObj);
-    connect(&cameraThreadObj, &QThread::started, cameraThread, &CameraThread::startCapture);
-    connect(cameraThread, &CameraThread::frameReady, this, [this](QImage img) {
-        ui->videoLabel->setPixmap(QPixmap::fromImage(img).scaled(
-            ui->videoLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    });
-    connect(cameraThread, &CameraThread::fpsUpdated, this, [this](int fps) {
-        ui->fpsLabel->setText(QString("FPS: %1 | 检测: %2").arg(fps).arg(detectCount));
-    });
-    cameraThreadObj.start();
+    // ===== GPIO 外部触发配置 =====
+    gpioPath = "/sys/class/gpio/gpio139/value";
 
-    // ---- 推理线程 ----
-    inferenceThread = new InferenceThread();
-    inferenceThread->moveToThread(&inferenceThreadObj);
-    inferenceThread->setCameraThread(cameraThread);
-    connect(inferenceThread, &InferenceThread::resultReady, this, &Widget::onResultReady);
-    connect(inferenceThread, &InferenceThread::logReady, this, &Widget::onLogReady);
-    inferenceThreadObj.start();
-
-    // 加载模型（路径根据实际部署调整）
-    bool ok = inferenceThread->initModels(
-        "/home/elf/models/detector.rknn",
-        "/home/elf/models/classifier.rknn");
-    if (!ok) qDebug() << "模型加载失败，请检查路径";
-    inferenceThread->start();
-
-    // ---- MQTT ----
-    mqttClient = new MqttClient(this);
-    mqttClient->connectBroker("192.168.1.100", 1883, "elf2_client");
-    inferenceThread->setMqttClient(mqttClient);
-
-    // ---- UI 信号 ----
-    connect(ui->camSwitchBtn, &QPushButton::clicked, this, &Widget::onCamSwitchClicked);
-    connect(ui->historyBtn, &QPushButton::clicked, this, &Widget::onHistoryClicked);
-
-    // ---- GPIO 轮询（50ms）----
     gpioTimer = new QTimer(this);
-    connect(gpioTimer, &QTimer::timeout, this, &Widget::readGpioState);
-    gpioTimer->start(50);
-
-    // ---- 蜂鸣器定时关闭 ----
-    buzzerTimer = new QTimer(this);
-    buzzerTimer->setSingleShot(true);
-    connect(buzzerTimer, &QTimer::timeout, this, &Widget::buzzerOff);
-
-    // ---- MQTT 心跳（5s）----
-    hbTimer = new QTimer(this);
-    connect(hbTimer, &QTimer::timeout, this, &Widget::sendHeartbeat);
-    hbTimer->start(5000);
+    connect(gpioTimer, &QTimer::timeout, this, &Widget::checkGpio);
+    gpioTimer->start(50);  // 每 50ms 读一次 GPIO
 }
 
-Widget::~Widget()
+// 初始化摄像头
+void Widget::initCameraThread(int index)
 {
-    gpioTimer->stop();
-    buzzerTimer->stop();
-    hbTimer->stop();
-
-    inferenceThread->stop();
-    inferenceThreadObj.quit();
-    inferenceThreadObj.wait();
-
-    cameraThread->stop();
-    cameraThreadObj.quit();
-    cameraThreadObj.wait();
-
-    delete ui;
+    m_thread = new QThread(this);
+    cameraThread = new CameraThread(index);
+    cameraThread->moveToThread(m_thread);
+    connect(cameraThread, &CameraThread::frameReady, this, &Widget::onFrameReady);
+    connect(cameraThread, &CameraThread::fpsUpdated, this, &Widget::onFpsUpdated);
+    connect(m_thread, &QThread::started, cameraThread, &CameraThread::startCapture);
+    m_thread->start();
 }
 
-/* ========== 结果显示 ========== */
-void Widget::onResultReady(const DetectionResult &result)
+// USB和CSI摄像头切换
+void Widget::onToggleCamera()
 {
-    // 更新 UI
-    ui->gradeValue->setText(QString::number(result.grade));
-    ui->defectValue->setText(result.defect);
-    ui->offsetValue->setText(result.positionOk ? "否" : "是");
-
-    // 显示结果图
-    QImage img(result.resultImage.data, result.resultImage.cols, result.resultImage.rows,
-               static_cast<int>(result.resultImage.step), QImage::Format_BGR888);
-    ui->resultLabel->setPixmap(QPixmap::fromImage(img).scaled(
-        ui->resultLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-
-    // 缺陷报警（非 normal 时蜂鸣器 1s）
-    if (result.defect != "正常" && !buzzerActive) {
-        buzzerOn();
-        buzzerTimer->start(1000);
+    // 1. 停止推理并等待其线程退出
+    if (inferenceThread) inferenceThread->stop();
+    if (m_inferThread) {
+        m_inferThread->quit();
+        m_inferThread->wait(3000);
     }
 
-    // 记录历史
-    HistoryItem item;
-    item.time = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
-    item.grade = result.grade;
-    item.defect = result.defect;
-    item.positionOk = result.positionOk;
-    history.append(item);
-    if (history.size() > 1000) history.removeFirst();  // 限制 1000 条
-}
+    // 2. 停止摄像头并等待其线程退出
+    if (cameraThread) cameraThread->stop();
+    if (m_thread) {
+        m_thread->quit();
+        m_thread->wait(3000);
+    }
 
-/* ========== JSON 日志 ========== */
-void Widget::onLogReady(const QString &json)
-{
-    ui->jsonLog->append(json);
-}
-
-/* ========== 摄像头切换 ========== */
-void Widget::onCamSwitchClicked()
-{
-    if (switchingCam) return;
-    switchingCam = true;
-
-    camIndex = (camIndex == 0) ? 1 : 0;
-    rebuildCamera();
-    ui->camSwitchBtn->setText(camIndex == 0 ? "切换摄像头 (USB)" : "切换摄像头 (MIPI)");
-
-    switchingCam = false;
-}
-
-void Widget::rebuildCamera()
-{
-    // 停止旧摄像头
-    cameraThread->stop();
-    cameraThreadObj.quit();
-    cameraThreadObj.wait();
-
-    // 重建
+    // 3. 删除旧对象
+    delete inferenceThread;
+    inferenceThread = nullptr;
     delete cameraThread;
-    cameraThread = new CameraThread(camIndex);
-    cameraThread->moveToThread(&cameraThreadObj);
-    connect(&cameraThreadObj, &QThread::started, cameraThread, &CameraThread::startCapture);
-    connect(cameraThread, &CameraThread::frameReady, this, [this](QImage img) {
-        ui->videoLabel->setPixmap(QPixmap::fromImage(img).scaled(
-            ui->videoLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    });
-    cameraThreadObj.start();
+    cameraThread = nullptr;
+    delete m_inferThread;
+    m_inferThread = nullptr;
+    delete m_thread;
+    m_thread = nullptr;
 
-    // 通知推理线程
+    // 4. 切换
+    useUsb = !useUsb;
+    int newIndex = useUsb ? 21 : 11;
+
+    // 5. 重建摄像头
+    m_thread = new QThread(this);
+    cameraThread = new CameraThread(newIndex);
+    cameraThread->moveToThread(m_thread);
+    connect(cameraThread, &CameraThread::frameReady, this, &Widget::onFrameReady);
+    connect(cameraThread, &CameraThread::fpsUpdated, this, &Widget::onFpsUpdated);
+    connect(m_thread, &QThread::started, cameraThread, &CameraThread::startCapture);
+    m_thread->start();
+
+    // 6. 重建推理
+    m_inferThread = new QThread(this);
+    inferenceThread = new InferenceThread();
     inferenceThread->setCameraThread(cameraThread);
+    if (!inferenceThread->initModels(
+        "/home/elf/qt_ws/hello/model/detector_best.rknn",
+        "/home/elf/qt_ws/hello/model/classifier_best.rknn")) {
+        return;
+    }
+    inferenceThread->moveToThread(m_inferThread);
+    connect(inferenceThread, &InferenceThread::resultReady, this, &Widget::onResultReady);
+    connect(inferenceThread, &InferenceThread::logReady, this, &Widget::onLogReady);
+    connect(m_inferThread, &QThread::started, inferenceThread, &InferenceThread::start);
+    m_inferThread->start();
+
+    ui->camSwitchBtn->setText(useUsb ? "切换摄像头 (CSI)" : "切换摄像头 (USB)");
 }
 
-/* ========== GPIO 读取 ========== */
-void Widget::readGpioState()
+// GPIO 检查函数
+void Widget::checkGpio()
 {
-    QFile file(GPIO_VALUE);
-    if (!file.open(QIODevice::ReadOnly)) return;
-    QByteArray data = file.readAll();
-    file.close();
+    // 读取 GPIO 电平值
+    QFile f(gpioPath);
+    if (!f.open(QIODevice::ReadOnly)) return;
+    QByteArray data = f.readAll();
+    f.close();
 
-    int state = data.trimmed().toInt();
-    // 下降沿触发（1→0）
+    int state = (data.trimmed() == "1") ? 1 : 0;
+
+    // 下降沿检测
     if (lastGpioState == 1 && state == 0) {
-        QMetaObject::invokeMethod(inferenceThread, "doInference", Qt::QueuedConnection);
+        // 触发一次推理（通过事件队列投递到推理线程执行）
+        if (inferenceThread) {
+            QMetaObject::invokeMethod(inferenceThread, "doInference", Qt::QueuedConnection);
+        }
     }
     lastGpioState = state;
 }
 
-/* ========== 蜂鸣器 ========== */
+// 蜂鸣器控制函数
 void Widget::buzzerOn()
 {
-    QFile f(BUZZER_GPIO);
+    if (buzzerActive) return;  // 已经激活
+    QFile f("/sys/class/gpio/gpio116/value");
     if (f.open(QIODevice::WriteOnly)) {
         f.write("1");
         f.close();
+        buzzerActive = true;
     }
-    buzzerActive = true;
 }
 
 void Widget::buzzerOff()
 {
-    QFile f(BUZZER_GPIO);
+    if (!buzzerActive) return;  // 已经关闭
+    QFile f("/sys/class/gpio/gpio116/value");
     if (f.open(QIODevice::WriteOnly)) {
         f.write("0");
         f.close();
-    }
-    buzzerActive = false;
-}
-
-/* ========== MQTT 心跳 ========== */
-void Widget::sendHeartbeat()
-{
-    if (mqttClient && mqttClient->isConnected()) {
-        QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
-        QString json = QString("{\"type\":\"heartbeat\",\"timestamp\":\"%1\"}").arg(ts);
-        mqttClient->publish("energy_label/heartbeat", json);
+        buzzerActive = false;
     }
 }
 
-/* ========== 历史记录 ========== */
-void Widget::onHistoryClicked()
+// 显示摄像头帧
+void Widget::onFrameReady(QImage image)
 {
-    showHistoryDialog();
+    QPixmap pixmap = QPixmap::fromImage(image);
+    pixmap = pixmap.scaled(ui->videoLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation);
+    ui->videoLabel->setPixmap(pixmap);
+    ui->videoLabel->setStyleSheet("background-color: black;");
+}
+
+// 初始化推理线程
+void Widget::initInferenceThread()
+{
+    m_inferThread = new QThread(this);
+    inferenceThread = new InferenceThread();
+    inferenceThread->setCameraThread(cameraThread);
+
+    // ===== MQTT 初始化（异步连接，不阻塞 UI）=====
+    mqttClient = new MqttClient(this);
+    mqttClient->connectBroker(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID);  // 后台尝试连接，失败也不阻塞
+    inferenceThread->setMqttClient(mqttClient);
+
+    if (!inferenceThread->initModels(
+        "/home/elf/qt_ws/hello/model/detector_best.rknn",
+        "/home/elf/qt_ws/hello/model/classifier_best.rknn")) {
+        return;
+    }
+
+    inferenceThread->moveToThread(m_inferThread);
+    connect(inferenceThread, &InferenceThread::resultReady, this, &Widget::onResultReady);
+    connect(inferenceThread, &InferenceThread::logReady, this, &Widget::onLogReady);
+    connect(m_inferThread, &QThread::started, inferenceThread, &InferenceThread::start);
+    m_inferThread->start();
+
+    // ===== MQTT 心跳定时器（5秒一次）=====
+    hbTimer = new QTimer(this);
+    connect(hbTimer, &QTimer::timeout, this, [this]() {
+        if (mqttClient && mqttClient->isConnected()) {
+            QString hbTopic = QString("elf2/%1/heartbeat").arg(deviceId);
+            mqttClient->publish(hbTopic, "alive");
+        }
+    });
+    hbTimer->start(5000);
+}
+
+// 推理结果处理函数
+void Widget::onResultReady(const DetectionResult &result)
+{
+    cv::Mat rgbResult;
+    cv::cvtColor(result.resultImage, rgbResult, cv::COLOR_BGR2RGB);
+    QImage img(rgbResult.data, rgbResult.cols, rgbResult.rows, rgbResult.step, QImage::Format_RGB888);
+    QPixmap pixmap = QPixmap::fromImage(img.copy());
+    pixmap = pixmap.scaled(ui->resultLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation);
+    ui->resultLabel->setPixmap(pixmap);
+
+    ui->gradeValue->setText(QString::number(result.grade));
+    ui->defectValue->setText(result.defect);
+    ui->offsetValue->setText(result.positionOk ? "否" : "是");
+
+    // 根据结果控制蜂鸣器
+    if (result.defect != "normal") {
+        // 有缺陷，触发蜂鸣器
+        buzzerOn();
+        QTimer::singleShot(1000, this, [this]() {
+            buzzerOff();
+        });
+    }
+}
+
+// 日志显示和本地数据记录
+void Widget::onLogReady(const QString &json)
+{
+    QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    QJsonObject obj = doc.object();
+
+    HistoryEntry entry;
+    entry.id = obj["seq_id"].toInt();
+    entry.time = obj["timestamp"].toString();
+    entry.grade = obj["grade"].toInt();
+    entry.defect = obj["defect"].toString();
+    entry.positionOk = obj["position_ok"].toBool();
+    history.append(entry);
+
+    QString display = QString("[%1] %2 | Grade:%3 Defect:%4 偏移:%5")
+        .arg(entry.id)
+        .arg(entry.time)
+        .arg(entry.grade)
+        .arg(entry.defect)
+        .arg(entry.positionOk ? "否" : "是");
+    ui->jsonLog->setText(display);
+}
+
+// FPS显示
+void Widget::onFpsUpdated(int fps)
+{
+    ui->fpsLabel->setText(QString("FPS: %1").arg(fps));
+}
+
+// 显示历史记录对话框
+bool Widget::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == ui->jsonLog && event->type() == QEvent::MouseButtonPress) {
+        showHistoryDialog();
+        return true;
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
 void Widget::showHistoryDialog()
 {
-    QDialog *dlg = new QDialog(this);
-    dlg->setWindowTitle("历史检测记录");
-    dlg->resize(600, 400);
+    if (!historyDialog) {
+        historyDialog = new QDialog(this);
+        historyDialog->setWindowTitle("推理数据回溯");
+        historyDialog->resize(600, 400);
 
-    QVBoxLayout *layout = new QVBoxLayout(dlg);
-    QTableWidget *table = new QTableWidget(dlg);
-    table->setColumnCount(4);
-    table->setHorizontalHeaderLabels(QStringList() << "时间" << "等级" << "缺陷" << "偏移");
-    table->horizontalHeader()->setStretchLastSection(true);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
-    table->setRowCount(history.size());
-    for (int i = 0; i < history.size(); ++i) {
-        table->setItem(i, 0, new QTableWidgetItem(history[i].time));
-        table->setItem(i, 1, new QTableWidgetItem(QString::number(history[i].grade)));
-        table->setItem(i, 2, new QTableWidgetItem(history[i].defect));
-        table->setItem(i, 3, new QTableWidgetItem(history[i].positionOk ? "否" : "是"));
+        QVBoxLayout *layout = new QVBoxLayout(historyDialog);
+        historyTable = new QTableWidget(historyDialog);
+        historyTable->setColumnCount(5);
+        historyTable->setHorizontalHeaderLabels(QStringList() << "ID" << "时间" << "等级" << "缺陷" << "偏移");
+        historyTable->horizontalHeader()->setStretchLastSection(true);
+        historyTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        historyTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        historyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        layout->addWidget(historyTable);
     }
 
-    layout->addWidget(table);
-    dlg->setLayout(layout);
-    dlg->exec();
-    delete dlg;
+    historyTable->setRowCount(history.size());
+    for (int i = 0; i < history.size(); i++) {
+        const HistoryEntry &e = history[i];
+        historyTable->setItem(i, 0, new QTableWidgetItem(QString::number(e.id)));
+        historyTable->setItem(i, 1, new QTableWidgetItem(e.time));
+        historyTable->setItem(i, 2, new QTableWidgetItem(QString::number(e.grade)));
+        historyTable->setItem(i, 3, new QTableWidgetItem(e.defect));
+        historyTable->setItem(i, 4, new QTableWidgetItem(e.positionOk ? "否" : "是"));
+    }
+    historyTable->scrollToBottom();
+    historyDialog->show();
+    historyDialog->raise();
+    historyDialog->activateWindow();
+}
+
+// 析构函数
+Widget::~Widget()
+{
+    if (hbTimer) {
+        hbTimer->stop();
+        delete hbTimer;
+    }
+    if (mqttClient) mqttClient->disconnectBroker();
+    if (inferenceThread) inferenceThread->stop();
+    if (m_inferThread) {
+        m_inferThread->quit();
+        m_inferThread->wait(3000);
+    }
+    if (cameraThread) cameraThread->stop();
+    if (m_thread) {
+        m_thread->quit();
+        m_thread->wait(3000);
+    }
+    delete inferenceThread;
+    delete m_inferThread;
+    delete cameraThread;
+    delete m_thread;
+    delete mqttClient;
+    delete ui;
 }

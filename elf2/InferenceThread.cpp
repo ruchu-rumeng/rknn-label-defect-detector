@@ -69,7 +69,7 @@ std::vector<std::pair<cv::Rect, float>> InferenceThread::postProcess(const std::
                                                       int origW, int origH)
 {
     const int numAnchors = 8400;
-    const float confThreshold = 0.50f;      
+    const float confThreshold = 0.25f;   // 交接文件要求：conf >= 0.25   
     const float minBoxArea = 35.0f;      // 面积过滤
 
     struct Box { float x1, y1, x2, y2, conf; };
@@ -166,7 +166,7 @@ cv::Mat InferenceThread::correctLabel(const cv::Mat& roi)
 
     // 1. 转换到 HSV，提取蓝色区域
     cv::Mat hsv;
-    cv::cvtColor(roi, hsv, cv::COLOR_BGR2HSV);
+    cv::cvtColor(roi, hsv, cv::COLOR_RGB2HSV);
 
     cv::Mat mask;
     cv::inRange(hsv, cv::Scalar(100, 60, 60), cv::Scalar(140, 255, 255), mask);
@@ -276,7 +276,7 @@ void InferenceThread::doInference()
         int x2 = std::min(origFrame.cols, bestBox.x + bestBox.width);
         int y2 = std::min(origFrame.rows, bestBox.y + bestBox.height);
         if (x2 > x1 && y2 > y1) {
-            roi = origFrame(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
+            roi = rgbFrame(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
         }
     }
 
@@ -288,13 +288,12 @@ void InferenceThread::doInference()
     // 2. 根据蓝色标签区域做矫正
     cv::Mat corrected = correctLabel(roi);
 
-    // 3. BGR -> RGB
-    cv::Mat rgbRoi;
-    cv::cvtColor(corrected, rgbRoi, cv::COLOR_BGR2RGB);
+    // 3. roi 已经是 RGB，无需再转换
 
-    // 4. resize 到 320 x 320
-    cv::Mat clsInput;
-    cv::resize(rgbRoi, clsInput, cv::Size(320, 320), 0, 0, cv::INTER_LINEAR);
+    // 4. Letterbox 到 320 x 320（保持比例 + 灰边填充，避免拉伸）
+    float clsScale;
+    int clsOffsetX, clsOffsetY;
+    cv::Mat clsInput = letterbox(corrected, 320, clsScale, clsOffsetX, clsOffsetY);
 
     // 5. 图像增强：降噪 + 锐化
     cv::Mat denoised;
@@ -302,6 +301,14 @@ void InferenceThread::doInference()
     cv::Mat blurred;
     cv::GaussianBlur(denoised, blurred, cv::Size(0, 0), 1.0);
     cv::addWeighted(denoised, 1.8, blurred, -0.8, 0, clsInput);
+
+    // ===== 调试：保存第二个模型输入图片 =====
+    static int clsDebugCount = 0;
+    QString debugPath = QString("/home/elf/qt_ws/hello/debug_cls_input_%1.png")
+                        .arg(++clsDebugCount % 100);  // 循环覆盖，最多存100张
+    cv::imwrite(debugPath.toStdString(), clsInput);
+    qDebug() << "[DEBUG] saved classifier input:" << debugPath;
+    // ==========================================
 
     if (!classifier.inference(clsInput)) return;
 

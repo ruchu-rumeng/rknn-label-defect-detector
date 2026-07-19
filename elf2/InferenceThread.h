@@ -44,7 +44,8 @@ private:
     QTimer *timer;
 
     cv::Mat letterbox(const cv::Mat &src, int targetSize,
-                      float &scale, int &padTop, int &padLeft);
+                      float &scale, int &padTop, int &padLeft,
+                      const cv::Scalar &padColor = cv::Scalar(0, 0, 0));
     std::vector<std::pair<cv::Rect, float>> postProcess(const std::vector<float> &output,
                                       float scale, int padTop, int padLeft,
                                       int origW, int origH);

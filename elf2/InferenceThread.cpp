@@ -38,28 +38,27 @@ void InferenceThread::start()
 {
     if (!cameraThread) return;
     running = true;
-    // 不再启动定时器，改为外部 GPIO 触发
 }
 
 void InferenceThread::stop()
 {
     running = false;
-    // timer 是子线程创建的 QObject，不要从主线程 delete
 }
 
 cv::Mat InferenceThread::letterbox(const cv::Mat &src, int targetSize,
-                                      float &scale, int &offsetX, int &offsetY)
+                                      float &scale, int &offsetX, int &offsetY,
+                                      const cv::Scalar &padColor)
 {
     scale = std::min((float)targetSize / src.cols, (float)targetSize / src.rows);
-    int newW = (int)(src.cols * scale);
-    int newH = (int)(src.rows * scale);
+    int newW = cvRound(src.cols * scale);
+    int newH = cvRound(src.rows * scale);
     offsetY = (targetSize - newH) / 2;
     offsetX = (targetSize - newW) / 2;
 
     cv::Mat resized;
-    cv::resize(src, resized, cv::Size(newW, newH), 0, 0, cv::INTER_CUBIC);
+    cv::resize(src, resized, cv::Size(newW, newH), 0, 0, cv::INTER_LINEAR);
 
-    cv::Mat dst(targetSize, targetSize, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::Mat dst(targetSize, targetSize, CV_8UC3, padColor);
     resized.copyTo(dst(cv::Rect(offsetX, offsetY, newW, newH)));
     return dst;
 }
@@ -245,7 +244,7 @@ void InferenceThread::doInference()
 
     float scale;
     int offsetX, offsetY;
-    cv::Mat detInput = letterbox(rgbFrame, 640, scale, offsetX, offsetY);
+    cv::Mat detInput = letterbox(rgbFrame, 640, scale, offsetX, offsetY, cv::Scalar(114, 114, 114));
 
     if (!detector.inference(detInput)) return;
 
@@ -288,27 +287,28 @@ void InferenceThread::doInference()
     // 2. 根据蓝色标签区域做矫正
     cv::Mat corrected = correctLabel(roi);
 
-    // 3. roi 已经是 RGB，无需再转换
-
-    // 4. Letterbox 到 320 x 320（保持比例 + 灰边填充，避免拉伸）
+    // 3. Letterbox 到 320 x 320（保持比例 + 灰边填充，避免拉伸）
     float clsScale;
     int clsOffsetX, clsOffsetY;
-    cv::Mat clsInput = letterbox(corrected, 320, clsScale, clsOffsetX, clsOffsetY);
+    cv::Mat clsInput = letterbox(corrected, 320, clsScale, clsOffsetX, clsOffsetY, cv::Scalar(128, 128, 128));
 
-    // 5. 图像增强：降噪 + 锐化
+    // 4. 图像增强：降噪 + 锐化
     cv::Mat denoised;
     cv::medianBlur(clsInput, denoised, 3);
     cv::Mat blurred;
-    cv::GaussianBlur(denoised, blurred, cv::Size(0, 0), 1.0);
-    cv::addWeighted(denoised, 1.8, blurred, -0.8, 0, clsInput);
+    cv::GaussianBlur(denoised, blurred, cv::Size(0, 0), 3.0);
+    cv::addWeighted(denoised, 2.0, blurred, -1.0, 0, clsInput);
 
-    // ===== 调试：保存第二个模型输入图片 =====
+    // ===== 调试代码已注释（开发时取消注释即可保存中间结果）=====
+    /*
     static int clsDebugCount = 0;
     QString debugPath = QString("/home/elf/qt_ws/hello/debug_cls_input_%1.png")
-                        .arg(++clsDebugCount % 100);  // 循环覆盖，最多存100张
-    cv::imwrite(debugPath.toStdString(), clsInput);
+                        .arg(++clsDebugCount % 100);
+    cv::Mat bgrForSave;
+    cv::cvtColor(clsInput, bgrForSave, cv::COLOR_RGB2BGR);
+    cv::imwrite(debugPath.toStdString(), bgrForSave);
     qDebug() << "[DEBUG] saved classifier input:" << debugPath;
-    // ==========================================
+    */
 
     if (!classifier.inference(clsInput)) return;
 

@@ -18,7 +18,7 @@ CameraThread::CameraThread(int cameraIndex, QObject *parent)
     if (!cap.isOpened()) return;
 
     if (cameraIndex != 11) {
-        cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', 'U', 'Y', '2'));
+        cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V'));
         cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
         cap.set(cv::CAP_PROP_FPS, 30);
@@ -30,9 +30,9 @@ CameraThread::CameraThread(int cameraIndex, QObject *parent)
     }
 
     // ===== 摄像头标定参数（640x480 分辨率下标定） =====
-    // 注意：如果换了摄像头，这些参数就不匹配了，需要重新标定！
-    // 临时调试：把下面这行改成 true 可跳过 remap
-    bool enableCalib = true;
+    // 畸变矫正由摄像头内置光学结构 + 物理支架调平承担
+    // 软件畸变矫正已关闭（enableCalib = false）
+    bool enableCalib = false;
 
     if (enableCalib) {
         cameraMatrix = (cv::Mat_<double>(3, 3) <<
@@ -65,19 +65,12 @@ void CameraThread::startCapture()
         cap >> origFrame;
         if (origFrame.empty()) return;
 
-        cv::Mat frame640;
-        if (origFrame.cols != 640 || origFrame.rows != 480) {
-            cv::resize(origFrame, frame640, cv::Size(640, 480), 0, 0, cv::INTER_LINEAR);
-        } else {
-            frame640 = origFrame;
-        }
-
-        // 畸变矫正（用预计算的 map1/map2，比 undistort 快）
+        // 畸变矫正：仅在 map 存在时执行（当前已关闭）
         cv::Mat undistorted;
         if (!map1.empty() && !map2.empty()) {
-            cv::remap(frame640, undistorted, map1, map2, cv::INTER_LINEAR);
+            cv::remap(origFrame, undistorted, map1, map2, cv::INTER_LINEAR);
         } else {
-            undistorted = frame640.clone();
+            undistorted = origFrame.clone();
         }
 
         {
@@ -87,7 +80,6 @@ void CameraThread::startCapture()
 
         cv::Mat rgbFrame;
         cv::cvtColor(undistorted, rgbFrame, cv::COLOR_BGR2RGB);
-
         QImage image(rgbFrame.data, rgbFrame.cols, rgbFrame.rows,
                      rgbFrame.step, QImage::Format_RGB888);
         emit frameReady(image.copy());
@@ -100,7 +92,7 @@ void CameraThread::startCapture()
         }
     });
 
-    timer->start(33);
+    timer->start(33);  // ~30fps
 }
 
 cv::Mat CameraThread::getCurrentFrame()
